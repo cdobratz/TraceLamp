@@ -115,11 +115,14 @@ pub async fn serve_stdio(config: &TraceLampConfig) -> Result<()> {
     Ok(())
 }
 
-/// Serve MCP at `http://0.0.0.0:<port>/mcp` until Ctrl-C.
+/// Loopback only. This transport has no authentication.
+const HTTP_BIND_HOST: &str = "127.0.0.1";
+
+/// Serve MCP at `http://127.0.0.1:<port>/mcp` until Ctrl-C.
 pub async fn serve_http(port: u16, config: &TraceLampConfig) -> Result<()> {
-    let listener = TcpListener::bind(("0.0.0.0", port))
+    let listener = TcpListener::bind((HTTP_BIND_HOST, port))
         .await
-        .with_context(|| format!("bind 0.0.0.0:{port}"))?;
+        .with_context(|| format!("bind {HTTP_BIND_HOST}:{port}"))?;
     let ct = CancellationToken::new();
     let shutdown = ct.clone();
     tokio::spawn(async move {
@@ -143,7 +146,7 @@ pub async fn serve_on(
     let recon = config.clone();
     let http_config = StreamableHttpServerConfig::default()
         .with_cancellation_token(shutdown.clone())
-        .with_allowed_hosts(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
+        .with_allowed_hosts(["localhost", "127.0.0.1", "::1"]);
     let service = StreamableHttpService::new(
         move || {
             Ok(TraceLampMcp {
@@ -167,6 +170,13 @@ mod tests {
     use rmcp::model::CallToolRequestParams;
     use rmcp::transport::StreamableHttpClientTransport;
     use rmcp::ServiceExt;
+
+    #[test]
+    fn http_bind_host_is_ipv4_loopback() {
+        let addr: SocketAddr = format!("{HTTP_BIND_HOST}:3000").parse().unwrap();
+        assert!(addr.ip().is_loopback());
+        assert_eq!(addr.ip().to_string(), "127.0.0.1");
+    }
 
     #[tokio::test]
     async fn http_server_lists_and_explains_a_rule() {

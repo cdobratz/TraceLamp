@@ -2,7 +2,7 @@
 
 Source for this setup: [Warp MCP](https://docs.warp.dev/agents/capabilities/mcp/). Skill file layout: [Warp skills](https://docs.warp.dev/agents/capabilities/skills/).
 
-Use stdio. Do not start `tracelamp mcp serve --transport http` for Warp. That listener binds `0.0.0.0` and has no authentication. Its host allowlist is `localhost`, `127.0.0.1`, `::1`, and `0.0.0.0`. Publishing that port lets a caller scan whatever path the process can read. This document does not deploy or expose it.
+Use stdio. Do not start `tracelamp mcp serve --transport http` for Warp. That listener binds `127.0.0.1` and has no authentication. Its host allowlist is `localhost`, `127.0.0.1`, and `::1`. Other local processes can still open the port. This document does not deploy or expose it.
 
 ## Prerequisites
 

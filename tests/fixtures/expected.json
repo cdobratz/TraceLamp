@@ -55,6 +55,10 @@
     "cloud/langchain/langchain_tools.json": [
       "recon/agent-cloud-spend"
     ],
+    "cloud/stripe/.mcp.json": [
+      "recon/agent-cloud-spend"
+    ],
+    "cloud/stripe-publishable/.mcp.json": [],
     "formats/generic/mcp.json": [],
     "formats/claude-code/.mcp.json": [],
     "formats/cursor/.cursor/mcp.json": [],

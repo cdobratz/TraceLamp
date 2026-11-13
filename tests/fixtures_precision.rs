@@ -106,6 +106,7 @@ fn assert_cloud_fixtures_link_azguard(value: &Value, root: &Path) {
         "cloud/claude-code/.mcp.json",
         "cloud/cursor/.cursor/mcp.json",
         "cloud/langchain/langchain_tools.json",
+        "cloud/stripe/.mcp.json",
     ] {
         let path = root.join(rel);
         let hits = rule_findings(value, &path, "recon/agent-cloud-spend");
