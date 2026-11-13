@@ -97,7 +97,7 @@ const RULES: [Rule; 7] = [
         id: AGENT_CLOUD_SPEND,
         name: "agent-cloud-spend",
         short_description: "Agent can spend cloud money",
-        help: "This agent or MCP server can create cloud resources or spend cloud money. It has cloud credentials, a cloud CLI or IaC apply command, or a cloud write tool.",
+        help: "This agent or MCP server can create cloud resources or spend cloud money. It has cloud credentials, a cloud CLI or IaC apply command, a cloud write tool, or a Stripe live secret key.",
         severity: "high",
         asi: &["ASI02"],
         help_uri: AZGUARD_GUARD,

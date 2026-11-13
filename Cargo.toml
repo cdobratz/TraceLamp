@@ -93,7 +93,7 @@ rmcp = { version = "3.8.0", features = [
 ] }
 schemars = "1"
 
-# Streamable HTTP MCP server. Binds 0.0.0.0:$PORT when `mcp serve --transport http` runs.
+# Streamable HTTP MCP server. `mcp serve --transport http` binds 127.0.0.1:$PORT.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 tokio-util = "0.7"
 

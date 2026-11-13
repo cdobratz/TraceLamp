@@ -258,7 +258,8 @@ fn scan_mcp_json(path: &Path, source: &str, language: &str) -> McpScan {
             ));
         }
 
-        let cloud = cloud_reasons(&launch, &launch_args, env, &tools);
+        let headers = obj.get("headers").and_then(|value| value.as_object());
+        let cloud = cloud_reasons(&launch, &launch_args, env, headers, &tools);
         if !cloud.is_empty() {
             result.findings.push(rule_finding(
                 path,
@@ -270,7 +271,7 @@ fn scan_mcp_json(path: &Path, source: &str, language: &str) -> McpScan {
             ));
         }
 
-        if let Some(headers) = obj.get("headers").and_then(|value| value.as_object()) {
+        if let Some(headers) = headers {
             for (key, value) in headers {
                 let Some(value) = value.as_str() else {
                     continue;
@@ -301,7 +302,7 @@ fn scan_mcp_json(path: &Path, source: &str, language: &str) -> McpScan {
             &packages,
             &cloud,
         );
-        if let Some(headers) = obj.get("headers").and_then(|value| value.as_object()) {
+        if let Some(headers) = headers {
             for key in headers.keys() {
                 server.credentials.push(InventoryCredential {
                     name: key.clone(),
@@ -414,7 +415,10 @@ fn inventory_server(
             let Some(value) = value.as_str() else {
                 continue;
             };
-            if key_is_credential(key) || literal_secret(key, value) {
+            if key_is_credential(key)
+                || literal_secret(key, value)
+                || CLOUD_ENV.contains(&key.as_str())
+            {
                 credentials.push(InventoryCredential {
                     name: key.clone(),
                     storage: "mcp-env".into(),
@@ -747,7 +751,7 @@ fn literal_secret(key: &str, value: &str) -> bool {
     if value.is_empty() || is_env_reference(value) || is_placeholder(value) {
         return false;
     }
-    if known_secret_value(value) {
+    if known_secret_value(value) || stripe_live_secret(value) {
         return true;
     }
     key_is_credential(key) && value.chars().count() >= 8
@@ -1011,6 +1015,7 @@ fn cloud_reasons(
     command: &str,
     args: &[String],
     env: Option<&serde_json::Map<String, Value>>,
+    headers: Option<&serde_json::Map<String, Value>>,
     tools: &[ToolDecl],
 ) -> Vec<String> {
     let mut reasons = Vec::new();
@@ -1020,10 +1025,23 @@ fn cloud_reasons(
     if args.iter().any(|arg| cloud_cred_path(arg)) || cloud_cred_path(command) {
         reasons.push("cloud credential path".into());
     }
+    if args.iter().any(|arg| stripe_live_secret(arg)) || stripe_live_secret(command) {
+        reasons.push("stripe live secret".into());
+    }
     if let Some(env) = env {
-        for key in env.keys() {
+        for (key, value) in env {
             if CLOUD_ENV.contains(&key.as_str()) {
                 reasons.push(format!("cloud credential {key}"));
+            }
+            if value.as_str().is_some_and(stripe_live_secret) {
+                reasons.push(format!("stripe live secret {key}"));
+            }
+        }
+    }
+    if let Some(headers) = headers {
+        for (key, value) in headers {
+            if value.as_str().is_some_and(stripe_live_secret) {
+                reasons.push(format!("stripe live secret {key}"));
             }
         }
     }
@@ -1044,6 +1062,9 @@ const CLOUD_ENV: &[&str] = &[
     "ARM_CLIENT_SECRET",
     "GOOGLE_APPLICATION_CREDENTIALS",
     "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_API_KEY",
+    "STRIPE_RESTRICTED_KEY",
 ];
 
 fn cli_spends(command: &str, args: &[String]) -> Option<&'static str> {
@@ -1061,8 +1082,32 @@ fn cli_spends(command: &str, args: &[String]) -> Option<&'static str> {
             Some("aws write")
         }
         "gcloud" if has("create") => Some("gcloud create"),
+        "stripe" if stripe_cli_charges(&lowered) => Some("stripe charge"),
         _ => None,
     }
+}
+
+fn stripe_cli_charges(args: &[String]) -> bool {
+    let has = |needle: &str| args.iter().any(|arg| arg == needle);
+    ((has("charges") || has("charge")) && (has("create") || has("capture")))
+        || ((has("payment_intents") || has("payment_intent")) && has("create"))
+}
+
+/// Live Stripe secret (`sk_live_`) or restricted (`rk_live_`) key.
+/// Test keys and publishable keys cannot charge real cards.
+fn stripe_live_secret(value: &str) -> bool {
+    let value = value.trim();
+    let value = value
+        .strip_prefix("Bearer ")
+        .or_else(|| value.strip_prefix("bearer "))
+        .unwrap_or(value);
+    let Some(rest) = value
+        .strip_prefix("sk_live_")
+        .or_else(|| value.strip_prefix("rk_live_"))
+    else {
+        return false;
+    };
+    rest.len() >= 24 && rest.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
 fn cloud_cred_path(value: &str) -> bool {
@@ -1092,6 +1137,10 @@ fn tool_spends_cloud(name: &str, description: &str) -> bool {
         "create_vm",
         "az vm create",
         "az_vm_create",
+        "create_payment_intent",
+        "create_charge",
+        "stripe_charge",
+        "payment_intents.create",
     ];
     NEEDLES.iter().any(|needle| blob.contains(needle))
 }
@@ -1109,6 +1158,9 @@ fn cloud_store_names(reasons: &[String]) -> Vec<String> {
         ("pulumi", "pulumi"),
         ("terraform", "terraform"),
         ("cdk", "cdk"),
+        ("stripe", "stripe"),
+        ("payment_intent", "stripe"),
+        ("create_charge", "stripe"),
     ] {
         if blob.contains(needle) && !names.iter().any(|existing: &String| existing == name) {
             names.push(name.to_string());
@@ -1222,5 +1274,140 @@ mod tests {
             .findings
             .iter()
             .any(|finding| finding.snippet == "header Authorization=***REDACTED***"));
+    }
+
+    fn rule_ids(scanned: &McpScan) -> Vec<&str> {
+        scanned
+            .findings
+            .iter()
+            .filter_map(|finding| finding.metadata.get("rule_id").map(String::as_str))
+            .collect()
+    }
+
+    fn dumped(scanned: &McpScan) -> String {
+        serde_json::to_string(&scanned.inventory).unwrap()
+            + &scanned
+                .findings
+                .iter()
+                .map(|finding| format!("{} {}", finding.snippet, finding.description))
+                .collect::<String>()
+    }
+
+    #[test]
+    fn stripe_secret_reference_and_charge_tool_spend_cloud_money() {
+        let source = r#"{
+            "mcpServers": {
+                "billing": {
+                    "command": "node",
+                    "args": ["billing-server.js"],
+                    "env": { "STRIPE_SECRET_KEY": "${STRIPE_SECRET_KEY}" },
+                    "tools": [{
+                        "name": "create_payment_intent",
+                        "description": "Create a card charge"
+                    }]
+                }
+            }
+        }"#;
+        let scanned = scan(Path::new("/repo/.mcp.json"), source, "json");
+        let ids = rule_ids(&scanned);
+        assert!(ids.contains(&rules::AGENT_CLOUD_SPEND), "{ids:?}");
+        assert!(!ids.contains(&rules::MCP_SECRET_IN_ENV), "{ids:?}");
+        let finding = scanned
+            .findings
+            .iter()
+            .find(|finding| {
+                finding.metadata.get("rule_id").map(String::as_str)
+                    == Some(rules::AGENT_CLOUD_SPEND)
+            })
+            .unwrap();
+        assert!(
+            finding.snippet.contains("STRIPE_SECRET_KEY"),
+            "{}",
+            finding.snippet
+        );
+        assert!(
+            finding.snippet.contains("create_payment_intent"),
+            "{}",
+            finding.snippet
+        );
+        assert!(finding.description.contains("azguard guard"));
+        let server = &scanned.inventory.agents[0].servers[0];
+        assert!(server
+            .data_stores
+            .iter()
+            .any(|store| store.kind == "cloud" && store.name == "stripe"));
+        assert!(server
+            .credentials
+            .iter()
+            .any(|cred| cred.name == "STRIPE_SECRET_KEY" && cred.storage == "mcp-env"));
+    }
+
+    #[test]
+    fn stripe_live_key_is_redacted_and_test_keys_do_not_spend() {
+        let live = format!("sk_live_{}", "A".repeat(24));
+        let restricted = format!("rk_live_{}", "B".repeat(24));
+        let test_key = format!("sk_test_{}", "C".repeat(24));
+        let publishable = format!("pk_live_{}", "D".repeat(24));
+        let source = format!(
+            r#"{{"mcpServers":{{"billing":{{"command":"node","args":["server.js","{live}"],"env":{{"BILLING":"{restricted}","TEST":"{test_key}","PUB":"{publishable}"}}}}}}}}"#
+        );
+        let scanned = scan(Path::new("/repo/.mcp.json"), &source, "json");
+        let text = dumped(&scanned);
+        assert!(!text.contains(&live), "{text}");
+        assert!(!text.contains(&restricted), "{text}");
+        let spend = scanned
+            .findings
+            .iter()
+            .find(|finding| {
+                finding.metadata.get("rule_id").map(String::as_str)
+                    == Some(rules::AGENT_CLOUD_SPEND)
+            })
+            .unwrap();
+        assert!(spend.snippet.contains("stripe live secret"));
+        assert!(spend.snippet.contains("BILLING"));
+        assert!(!spend.snippet.contains("TEST"));
+        assert!(!spend.snippet.contains("PUB"));
+
+        let quiet = format!(
+            r#"{{"mcpServers":{{"web":{{"command":"node","args":["web.js"],"env":{{"STRIPE_PUBLISHABLE_KEY":"${{STRIPE_PUBLISHABLE_KEY}}","TEST":"{test_key}"}}}}}}}}"#
+        );
+        let quiet_scan = scan(Path::new("/repo/.mcp.json"), &quiet, "json");
+        assert!(
+            !rule_ids(&quiet_scan).contains(&rules::AGENT_CLOUD_SPEND),
+            "{:?}",
+            rule_ids(&quiet_scan)
+        );
+        assert!(!dumped(&quiet_scan).contains(&test_key));
+    }
+
+    #[test]
+    fn stripe_cli_charge_spends_and_listen_does_not() {
+        let charge = r#"{"mcpServers":{"billing":{"command":"stripe","args":["payment_intents","create","--amount","500"]}}}"#;
+        let scanned = scan(Path::new("/repo/.mcp.json"), charge, "json");
+        assert!(rule_ids(&scanned).contains(&rules::AGENT_CLOUD_SPEND));
+        assert!(scanned.inventory.agents[0].servers[0]
+            .data_stores
+            .iter()
+            .any(|store| store.name == "stripe"));
+
+        let listen = r#"{"mcpServers":{"billing":{"command":"stripe","args":["listen","--forward-to","localhost:4242"]}}}"#;
+        let scanned = scan(Path::new("/repo/.mcp.json"), listen, "json");
+        assert!(!rule_ids(&scanned).contains(&rules::AGENT_CLOUD_SPEND));
+    }
+
+    #[test]
+    fn stripe_live_header_is_cloud_spend_without_the_value() {
+        let live = format!("sk_live_{}", "E".repeat(24));
+        let source = format!(
+            r#"{{"mcpServers":{{"billing":{{"url":"https://example.invalid/mcp","headers":{{"Authorization":"Bearer {live}"}}}}}}}}"#
+        );
+        let scanned = scan(Path::new("/repo/.mcp.json"), &source, "json");
+        assert!(!dumped(&scanned).contains(&live));
+        let ids = rule_ids(&scanned);
+        assert!(ids.contains(&rules::AGENT_CLOUD_SPEND), "{ids:?}");
+        assert!(ids.contains(&rules::MCP_SECRET_IN_ENV), "{ids:?}");
+        let cred = &scanned.inventory.agents[0].servers[0].credentials[0];
+        assert_eq!(cred.name, "Authorization");
+        assert_eq!(cred.storage, "mcp-header");
     }
 }

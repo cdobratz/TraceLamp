@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "web": {
+      "command": "node",
+      "args": ["web.js"],
+      "env": {
+        "STRIPE_PUBLISHABLE_KEY": "${STRIPE_PUBLISHABLE_KEY}"
+      },
+      "tools": [
+        {
+          "name": "list_customers",
+          "description": "List Stripe customers"
+        }
+      ]
+    }
+  }
+}

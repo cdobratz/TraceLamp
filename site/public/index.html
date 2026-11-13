@@ -129,14 +129,14 @@ tracelamp config show</code></pre>
         <pre><code>tracelamp mcp serve --transport http --port 3000
 tracelamp mcp connect "tracelamp mcp serve"
 tracelamp mcp connect http://127.0.0.1:3000/mcp</code></pre>
-        <p>The HTTP process listens on <code>0.0.0.0:&lt;port&gt;</code> and serves <code>/mcp</code>. The accepted hosts are <code>localhost</code>, <code>127.0.0.1</code>, <code>::1</code>, and <code>0.0.0.0</code>. There is no login and no tenant boundary. <code>scan_repo</code> reads whatever path the caller passes on that machine. Do not publish this port.</p>
+        <p>The HTTP process listens on <code>127.0.0.1:&lt;port&gt;</code> and serves <code>/mcp</code>. The accepted hosts are <code>localhost</code>, <code>127.0.0.1</code>, and <code>::1</code>. There is no login and no tenant boundary. <code>scan_repo</code> reads whatever path the caller passes on that machine. Other local processes can still open the port.</p>
         <p><code>tracelamp scan</code> does not start the MCP server. <code>tracelamp mcp connect</code> either spawns a stdio command or opens an <code>http://</code> or <code>https://</code> endpoint.</p>
       </section>
 
       <section id="sarif">
         <p class="kicker">05 Reports</p>
         <h2>JSON, SARIF, Mermaid, CycloneDX</h2>
-        <p>JSON includes <code>inventory</code> (agent, MCP server or tool, data store, credential) and <code>inventory_mermaid</code>. <code>--format mermaid</code> prints only the diagram. <code>--format cyclonedx</code> prints a CycloneDX 1.6 document of that inventory. The export does not fetch a schema and does not contact a registry.</p>
+        <p>JSON includes <code>inventory</code> (agent, MCP server or tool, data store, credential) and <code>inventory_mermaid</code>. <code>--format mermaid</code> prints only the diagram. <code>--format cyclonedx</code> prints a CycloneDX 1.6 document of that inventory. Credential values are omitted. The export does not fetch a schema and does not contact a registry.</p>
         <p>SARIF output is 2.1.0. The tool driver name is <code>tracelamp</code>. <code>informationUri</code> is <code>https://tracelamp.dev</code>. Each built-in rule is listed under <code>tool.driver.rules</code> with help text and its OWASP Agentic ASI tags. Result <code>ruleId</code> values keep the <code>recon/</code> prefix so existing baselines and suppressions stay valid.</p>
         <p>Suppress a finding with <code>tracelamp:ignore &lt;rule-id&gt;</code> on the same line or the previous line. <code>recon:ignore &lt;rule-id&gt;</code> still works. <code>//</code>, <code>#</code>, and <code>/* */</code> comments all work. Several rule ids can be separated by spaces or commas.</p>
       </section>
@@ -195,7 +195,7 @@ tracelamp mcp connect http://127.0.0.1:3000/mcp</code></pre>
             <tr>
               <td><code>recon/agent-cloud-spend</code></td>
               <td>ASI02</td>
-              <td>Agent or MCP server with cloud credentials, a cloud CLI or IaC apply, or a cloud write tool.</td>
+              <td>Agent or MCP server with cloud credentials, a cloud CLI or IaC apply, a cloud write tool, or a Stripe live secret key.</td>
             </tr>
           </tbody>
         </table>
