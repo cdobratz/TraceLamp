@@ -1,0 +1,70 @@
+name: TraceLamp
+description: Scan a repository with TraceLamp and optionally upload SARIF to GitHub code scanning.
+
+inputs:
+  version:
+    description: Release to download, as 0.1.0 or v0.1.0. The action fetches that tag's archive and SHA256SUMS.
+    required: false
+    default: "0.1.0"
+  path:
+    description: Directory to scan. Relative paths are resolved from the workspace.
+    required: false
+    default: "."
+  baseline:
+    description: Baseline file. Findings already listed in it do not fail the job. Leave empty to skip the baseline.
+    required: false
+    default: ""
+  fail-on:
+    description: Lowest severity that fails the job after the baseline is applied (critical, high, medium, low, info, or none).
+    required: false
+    default: high
+  upload-sarif:
+    description: Upload SARIF to GitHub code scanning. The calling job needs security-events write when this is true.
+    required: false
+    default: "false"
+
+outputs:
+  sarif_file:
+    description: Path to the SARIF file written by the scan.
+    value: ${{ steps.scan.outputs.sarif_file }}
+  finding_count:
+    description: Findings remaining after the baseline filter.
+    value: ${{ steps.scan.outputs.finding_count }}
+  blocking_count:
+    description: Findings at or above fail-on.
+    value: ${{ steps.scan.outputs.blocking_count }}
+  should_fail:
+    description: True when blocking_count is greater than zero.
+    value: ${{ steps.scan.outputs.should_fail }}
+
+runs:
+  using: composite
+  steps:
+    - name: Scan with TraceLamp
+      id: scan
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_BASELINE: ${{ inputs.baseline }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+      run: bash "$GITHUB_ACTION_PATH/scan.sh"
+
+    - name: Upload SARIF
+      if: inputs.upload-sarif == 'true' && steps.scan.outputs.sarif_file != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif_file }}
+        checkout_path: ${{ github.workspace }}
+        category: tracelamp
+
+    - name: Fail on findings
+      if: steps.scan.outputs.should_fail == 'true'
+      shell: bash
+      env:
+        BLOCKING_COUNT: ${{ steps.scan.outputs.blocking_count }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        echo "TraceLamp found ${BLOCKING_COUNT} finding(s) at or above ${FAIL_ON}."
+        exit 1

@@ -1,0 +1,91 @@
+name: Action
+
+# Runs the composite action in this checkout against fixtures.
+# contents: read only. upload-sarif stays false, so this workflow
+# does not grant code scanning write access.
+# tests/action/unpinned-baseline.json was written by tracelamp 0.1.0
+# for tests/fixtures/mcp/unpinned. It sits outside tests/fixtures so a
+# full fixture scan does not treat the baseline text as a new finding.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    name: action on fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checksum and fail-on self-test
+        run: bash action/scan.sh --self-test
+
+      - name: Known findings stay in the baseline
+        id: baseline
+        uses: ./action
+        with:
+          version: "0.1.0"
+          path: tests/fixtures/mcp/unpinned
+          baseline: tests/action/unpinned-baseline.json
+          fail-on: high
+          upload-sarif: false
+
+      - name: Baselined fixture has nothing new
+        env:
+          SARIF: ${{ steps.baseline.outputs.sarif_file }}
+          FINDING_COUNT: ${{ steps.baseline.outputs.finding_count }}
+          BLOCKING_COUNT: ${{ steps.baseline.outputs.blocking_count }}
+          SHOULD_FAIL: ${{ steps.baseline.outputs.should_fail }}
+        run: |
+          test "$FINDING_COUNT" = "0"
+          test "$BLOCKING_COUNT" = "0"
+          test "$SHOULD_FAIL" = "false"
+          python3 -c 'import json, os; data = json.load(open(os.environ["SARIF"], encoding="utf-8")); assert data["version"] == "2.1.0"; assert data["runs"][0]["results"] == []'
+
+      - name: Critical threshold ignores a high finding
+        id: below
+        uses: ./action
+        with:
+          version: "0.1.0"
+          path: tests/fixtures/mcp/unpinned
+          fail-on: critical
+          upload-sarif: false
+
+      - name: High finding is reported and does not fail
+        env:
+          SARIF: ${{ steps.below.outputs.sarif_file }}
+          FINDING_COUNT: ${{ steps.below.outputs.finding_count }}
+          BLOCKING_COUNT: ${{ steps.below.outputs.blocking_count }}
+          SHOULD_FAIL: ${{ steps.below.outputs.should_fail }}
+        run: |
+          test "$FINDING_COUNT" = "2"
+          test "$BLOCKING_COUNT" = "0"
+          test "$SHOULD_FAIL" = "false"
+          python3 -c 'import json, os, sys; data = json.load(open(os.environ["SARIF"], encoding="utf-8")); rules = {item["ruleId"] for item in data["runs"][0]["results"]}; assert "recon/mcp-unpinned-package" in rules; uris = [item["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] for item in data["runs"][0]["results"]]; bad = [uri for uri in uris if uri.startswith("/") or uri.startswith("./") or chr(92) in uri]; sys.exit(1 if bad else 0)'
+
+      - name: A new high finding fails the scan
+        id: new-high
+        continue-on-error: true
+        uses: ./action
+        with:
+          version: "0.1.0"
+          path: tests/fixtures/mcp/unpinned
+          fail-on: high
+          upload-sarif: false
+
+      - name: Confirm the new high finding failed the step
+        if: always()
+        env:
+          BLOCKING_COUNT: ${{ steps.new-high.outputs.blocking_count }}
+          SHOULD_FAIL: ${{ steps.new-high.outputs.should_fail }}
+          OUTCOME: ${{ steps.new-high.outcome }}
+        run: |
+          test "$BLOCKING_COUNT" = "1"
+          test "$SHOULD_FAIL" = "true"
+          test "$OUTCOME" = "failure"
