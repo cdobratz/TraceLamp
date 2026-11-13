@@ -26,6 +26,7 @@ The command is `tracelamp`. Documentation and examples below use that name. See 
 | Inline `tracelamp:ignore` suppressions (and `recon:ignore`) and a baseline file | Implemented |
 | CycloneDX 1.6 AI-BOM export (`--format cyclonedx`) | Implemented |
 | GitHub Actions CI (`cargo fmt --check`, build, test, clippy) | Implemented |
+| GitHub Action (`action/`): release archive, `SHA256SUMS`, SARIF upload, baseline, fail-on severity | Implemented |
 | Opt-in LLM analysis (`tracelamp analyze --llm`, local Ollama by default, hosted OpenAI and Anthropic) | Implemented |
 | MCP server (`tracelamp mcp serve`, stdio and streamable HTTP) with `scan_repo`, `list_findings`, `explain_finding`, `agent_inventory` | Implemented |
 | MCP client (`tracelamp mcp connect` for a stdio command or an http(s) URL) | Implemented |
@@ -135,6 +136,7 @@ tracelamp/
 │   ├── skills/
 │   ├── agents/
 │   └── report/           # terminal, JSON, SARIF, Mermaid, CycloneDX
+├── action/               # composite GitHub Action
 ├── queries/              # tree-sitter .scm queries, one file per language
 ├── config/default.toml
 └── tests/fixtures/       # rule fixtures, language corpus, and expected results
@@ -164,6 +166,12 @@ tracelamp config show
 ```
 
 `analyze` scores the static findings. Add `--llm` to also ask a model about those findings. A skill is a TOML file of regex search patterns; `skill run` and `agent run` apply them while reading files. An agent runs the static scan, then its skills, then the rule scores. `--llm` or `use_llm = true` in the agent file is what turns the model on.
+
+## GitHub Action
+
+The composite action in `action/` downloads a release archive for the runner, checks it against `SHA256SUMS`, and runs `tracelamp scan`. A baseline file limits the job failure to new findings. `fail-on` sets the lowest severity that fails the job. Set `upload-sarif: true` to send SARIF to GitHub code scanning, and give that job `security-events: write`. Leave the toggle off and the job only needs `contents: read`.
+
+Example workflows: [docs/github-action.md](docs/github-action.md).
 
 ## Site
 

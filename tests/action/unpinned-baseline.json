@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "fingerprints": [
+    {
+      "fingerprint": "4a0c3aa1182d1da955e268c700799324a41767293ee5255c9e92dbbc66db44c2",
+      "rule_id": "recon/agent",
+      "path": ".mcp.json",
+      "snippet": "\"mcpServers\": {",
+      "count": 1
+    },
+    {
+      "fingerprint": "e00cd54d4eb0aac0e1b880731ff9fb612a66edc73bc04df9a2ff2eabc1ff41d2",
+      "rule_id": "recon/mcp-unpinned-package",
+      "path": ".mcp.json",
+      "snippet": "postmark-mcp",
+      "count": 1
+    }
+  ]
+}

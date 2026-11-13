@@ -32,4 +32,6 @@ Each job is a native build on a GitHub-hosted runner. Nothing is cross-compiled.
 
 `scripts/package_release.py` puts both commands, `LICENSE`, `NOTICE`, and `README.md` at the root of the archive. Unix binaries are marked executable. The publish job writes `SHA256SUMS` for every archive and opens one GitHub Release titled `TraceLamp X.Y.Z`. If any target fails, the release is not created.
 
+The composite action in `action/` downloads these archives and `SHA256SUMS`. Keep the names `tracelamp-<version>-<target>.tar.gz` (`.zip` on Windows) and the `sha256sum` line format (`<digest><two spaces><filename>`).
+
 The Linux x86_64 archive can be reproduced on a machine that already builds this repo. The other four targets run only in that workflow and were not executed while the workflow was added.
