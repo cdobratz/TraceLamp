@@ -327,9 +327,15 @@ fn cyclonedx_exports_agent_inventory() {
         doc["metadata"]["tools"]["components"][0]["name"],
         "tracelamp"
     );
-    let names: Vec<&str> = doc["components"]
-        .as_array()
-        .unwrap()
+    let raw = String::from_utf8(output.stdout.clone()).expect("utf-8");
+    assert!(
+        !raw.contains("local-mcp-token-abcdefghij"),
+        "cyclonedx included a credential value"
+    );
+    assert_eq!(doc["metadata"]["component"]["type"], "application");
+    assert_eq!(doc["metadata"]["component"]["bom-ref"], "tracelamp-scan");
+    let components = doc["components"].as_array().unwrap();
+    let names: Vec<&str> = components
         .iter()
         .filter_map(|component| component["name"].as_str())
         .collect();
@@ -343,11 +349,69 @@ fn cyclonedx_exports_agent_inventory() {
         .find(|component| component["name"] == "filesystem")
         .unwrap();
     assert_eq!(filesystem["type"], "library");
-    let cred = doc["components"]
-        .as_array()
-        .unwrap()
+    let cred = components
         .iter()
         .find(|component| component["name"] == "API_TOKEN")
         .unwrap();
     assert_eq!(cred["type"], "cryptographic-asset");
+    assert_eq!(cred["properties"][0]["value"], "credential");
+
+    let agent = components
+        .iter()
+        .find(|component| component["name"] == "Claude Code")
+        .unwrap();
+    assert_eq!(agent["type"], "application");
+    assert_eq!(agent["properties"][0]["value"], "agent");
+    let tool = components
+        .iter()
+        .find(|component| component["name"] == "read_file")
+        .unwrap();
+    assert_eq!(tool["type"], "library");
+    assert_eq!(tool["properties"][0]["value"], "tool");
+    let store = components
+        .iter()
+        .find(|component| component["name"] == "/")
+        .unwrap();
+    assert_eq!(store["type"], "data");
+    assert_eq!(store["properties"][0]["value"], "data-store");
+
+    let refs: Vec<&str> = components
+        .iter()
+        .filter_map(|component| component["bom-ref"].as_str())
+        .collect();
+    let deps = doc["dependencies"].as_array().expect("dependencies");
+    let root = deps
+        .iter()
+        .find(|dep| dep["ref"] == "tracelamp-scan")
+        .expect("scan root dependency");
+    assert!(root["dependsOn"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|child| child == &agent["bom-ref"]));
+    let server_dep = deps
+        .iter()
+        .find(|dep| dep["ref"] == filesystem["bom-ref"])
+        .expect("server dependency");
+    let server_deps = server_dep["dependsOn"].as_array().unwrap();
+    for component in [tool, store, cred] {
+        assert!(
+            server_deps
+                .iter()
+                .any(|child| child == &component["bom-ref"]),
+            "missing dependency {}",
+            component["name"]
+        );
+    }
+    for dep in deps {
+        let parent = dep["ref"].as_str().unwrap();
+        assert!(
+            parent == "tracelamp-scan" || refs.contains(&parent),
+            "{parent}"
+        );
+        for child in dep["dependsOn"].as_array().unwrap() {
+            let child = child.as_str().unwrap();
+            assert!(refs.contains(&child), "{child}");
+        }
+    }
 }

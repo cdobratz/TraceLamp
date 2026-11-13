@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "billing": {
+      "command": "node",
+      "args": ["billing-server.js"],
+      "env": {
+        "STRIPE_SECRET_KEY": "${STRIPE_SECRET_KEY}"
+      },
+      "tools": [
+        {
+          "name": "create_payment_intent",
+          "description": "Create a card charge"
+        }
+      ]
+    }
+  }
+}

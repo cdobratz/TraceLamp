@@ -19,7 +19,7 @@ The command is `tracelamp`. Documentation and examples below use that name. See 
 | Static, no-execute, CI-safe scan | Implemented |
 | Agent/MCP config inventory (JSON + Mermaid) | Implemented |
 | MCP rules (unpinned npx/uvx, mcp-remote CVE-2025-6514, secrets in env, filesystem `/` or `~`, shell without approval) | Implemented |
-| "Agent can spend cloud money" rule, with remediation pointing at AzGuard | Implemented |
+| "Agent can spend cloud money" rule (cloud credentials, cloud CLIs, IaC apply, Stripe live secret keys), with remediation pointing at AzGuard | Implemented |
 | Tree-sitter queries for Python, JavaScript, TypeScript, Go, and Rust (functions, API endpoints, shell vs database calls) | Implemented |
 | Regex fallback for other languages | Implemented |
 | Default ignores, `.gitignore`, `.tracelampignore`, and `.reconignore` | Implemented |
@@ -42,7 +42,7 @@ The check is `tests/static_scan.rs`. It runs `scan` and `analyze` (without `--ll
 
 `tracelamp analyze --llm` is opt-in. It sends findings and short snippets to the model, never whole files, and stops when the estimated cost would pass `llm.max_cost_usd` (0.25 by default). The default provider is local Ollama (`llama3.2` at `http://localhost:11434`, or `OLLAMA_HOST`). `--provider openai` uses `OPENAI_API_KEY` and `--provider anthropic` uses `ANTHROPIC_API_KEY`. Ollama is priced at zero, so it always fits the cap.
 
-`tracelamp mcp serve` speaks MCP over stdio. `tracelamp mcp serve --transport http --port 3000` listens on `0.0.0.0:3000` and serves the same tools at `/mcp` (streamable HTTP). The MCP server name is `tracelamp`. `tracelamp mcp connect` either spawns a stdio command or opens an `http://` / `https://` endpoint. Neither path is used by `scan`.
+`tracelamp mcp serve` speaks MCP over stdio. `tracelamp mcp serve --transport http --port 3000` listens on `127.0.0.1:3000` and serves the same tools at `/mcp` (streamable HTTP). The listener is loopback only and has no authentication. The accepted hosts are `localhost`, `127.0.0.1`, and `::1`. The MCP server name is `tracelamp`. `tracelamp mcp connect` either spawns a stdio command or opens an `http://` / `https://` endpoint. Neither path is used by `scan`.
 
 ```bash
 tracelamp scan <path>
@@ -62,7 +62,7 @@ tracelamp mcp connect "tracelamp mcp serve"
 tracelamp mcp connect http://127.0.0.1:3000/mcp
 ```
 
-JSON output includes `inventory` (agent → MCP server/tool → data store → credential) and `inventory_mermaid`. `--format mermaid` prints only the diagram. `--format cyclonedx` prints a CycloneDX 1.6 JSON document of that inventory (agents, MCP servers, tools, data stores, credentials). SARIF output names the tool driver `tracelamp` and sets `informationUri` to `https://tracelamp.dev`.
+JSON output includes `inventory` (agent → MCP server/tool → data store → credential) and `inventory_mermaid`. `--format mermaid` prints only the diagram. `--format cyclonedx` prints a CycloneDX 1.6 JSON document of that inventory (agents, MCP servers, tools, data stores, credentials). Credential values are omitted. SARIF output names the tool driver `tracelamp` and sets `informationUri` to `https://tracelamp.dev`.
 
 `--baseline` prints only findings whose fingerprint is not already in the file and exits 1 when any remain, so CI fails on new findings. `--write-baseline` records the current findings and does not fail the run. A fingerprint is the SHA-256 of the rule id, the path relative to the scan root, and the snippet with whitespace collapsed. Line numbers are not part of it.
 
@@ -80,7 +80,7 @@ Each rule has a stable id, help text, an [OWASP Top 10 for Agentic Applications 
 | `recon/mcp-secret-in-env` | ASI03 | Literal secret in an MCP `env` value. `${VAR}` references do not match. |
 | `recon/mcp-filesystem-root` | ASI02 | Filesystem root set to `/` or `~`. |
 | `recon/mcp-shell-without-approval` | ASI02, ASI05 | Shell or exec tool with no approval flag. |
-| `recon/agent-cloud-spend` | ASI02 | Agent or MCP server with cloud credentials, a cloud CLI / IaC apply, or a cloud write tool. Remediation: least privilege and [`azguard guard`](https://github.com/cdobratz/AzGuard#agent-guard). |
+| `recon/agent-cloud-spend` | ASI02 | Agent or MCP server with cloud credentials, a cloud CLI / IaC apply, a cloud write tool, or a Stripe live secret key (`STRIPE_SECRET_KEY`, `STRIPE_API_KEY`, `STRIPE_RESTRICTED_KEY`, `sk_live_` / `rk_live_`, or a charge command). Remediation: least privilege and [`azguard guard`](https://github.com/cdobratz/AzGuard#agent-guard). |
 
 Configs read for the inventory: `mcp.json`, `.mcp.json`, `.warp/.mcp.json` (Warp), `.cursor/mcp.json`, `.vscode/mcp.json`, `claude_desktop_config.json`, and LangChain tool lists. A project `.mcp.json` that is not under `.warp/` stays attributed to Claude Code.
 
